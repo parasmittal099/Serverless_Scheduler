@@ -136,7 +136,7 @@ class RpcClient(object):
                 pika.ConnectionParameters(host=RABBITMQ_HOST, credentials=credentials))
         else:
             self.connection = pika.BlockingConnection(
-                pika.ConnectionParameters(RABBITMQ_HOST, RABBITMQ_PORT, credentials=credentials))
+                pika.ConnectionParameters(RABBITMQ_HOST, RABBITMQ_PORT, credentials=credentials, heartbeat = 0))
 
         self.channel = self.connection.channel()
 

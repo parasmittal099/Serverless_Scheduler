@@ -14,7 +14,7 @@ def request_handler(request,service,start_time,run_async = False):
     if provider is None : 
         return None,None,None,None
     
-    job = Job.objects.create(provider = provider,service = service , start_time = start_time)
+    job = Job.objects.create(provider = provider, start_time = start_time)
     job.save()
     task_link = service.docker_container 
     task_developer = service.developer
@@ -38,12 +38,12 @@ def calculate_cost(total_time):
     return total_time*0.01
 
 def find_provider():
-
+    print("Find provider called")
     ready_providers = User.objects.filter(
         active = True , ready = True , 
-        last_ready_signal__gte = datetime.now(tz=timezone(TIME_ZONE)) - timedelta(minutes=1)
+        last_ready_signal__gte = datetime.now(tz=timezone(TIME_ZONE)) - timedelta(minutes=1000)
     )
-    
+    print(ready_providers)
     if len(ready_providers) == 0: 
         return
 

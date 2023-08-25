@@ -90,6 +90,7 @@ def delete_service(request, service_id):
 
 @csrf_exempt
 def run_service(request, service_id):
+    print(service_id)
     response = ''
     try:
         service = Services.objects.get(id=service_id)
