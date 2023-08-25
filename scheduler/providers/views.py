@@ -6,6 +6,7 @@ from django.contrib.auth.decorators import login_required
 from providers.forms import ProviderForm
 from profiles.models import User
 from datetime import datetime, timedelta, tzinfo
+from django.http import JsonResponse
 import uuid
 from providers.models import Job
 from scheduler.settings import TIME_ZONE
@@ -85,15 +86,18 @@ def stop_providing(request):
 
 
 # @login_required
+@csrf_exempt
 def ready(request):
     """
     Shows that the provider is still ready.
     """
-    provider = request.user.provider
+    data = json.loads(request.body)
+    provider = get_object_or_404(User, pk=data.get('provider'))
+    provider.active = True
     provider.ready = True
     provider.last_ready_signal = datetime.now(tz=timezone(TIME_ZONE))
     provider.save()
-    return redirect('providers_app:index')
+    return JsonResponse({"message":"Provider ready"})
 
 
 # @login_required

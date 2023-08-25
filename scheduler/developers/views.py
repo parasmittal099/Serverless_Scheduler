@@ -29,15 +29,13 @@ def new_service(request):
     """
     if request.method == 'POST':
         data = json.loads(request.body) 
-        service = Services()
-        try:
-            service.save(
-                developer = data.get('developer'), 
+        service = Services(developer = get_object_or_404(User, pk=data.get('developer')), 
                 provider = get_default_provider(), 
                 name = data.get('name'),
                 docker_container = data.get('docker_url'),
-                active = data.get('is_active',True),
-            )
+                active = data.get('is_active',True))
+        try:
+            service.save()
             messages.success(request, "New service created")
         except IntegrityError:
                 messages.error(request, "You already have a service with this name")
@@ -48,8 +46,7 @@ def new_service(request):
 
 # @login_required()
 def get_default_provider():
-    provider = User.objects.get(user_id = 3)
-    return provider
+    return get_object_or_404(User, pk=3)
 
 def user_services(request):
     """
@@ -91,26 +88,32 @@ def delete_service(request, service_id):
                   {'all_services': all_services,
                    'developer_id': request.user.developer.id})
 
+@csrf_exempt
 def run_service(request, service_id):
     response = ''
     try:
         service = Services.objects.get(id=service_id)
         if service.active:
+            print(service_id, request)
             temp_time = datetime.now(tz=timezone(TIME_ZONE))
             response, provider, providing_time, job_id = request_handler(request, service, temp_time)
             if response is None:
                 messages.error(request, "There are no available providers in the network")
-                return redirect('index')
+                return JsonResponse({"message" : "There are no available providers in the network"})
             else:
                 messages.success(request, "Successfully sent a request to '{}' service of '{}'".format(service.name,
                                                                                                    service.developer))
+                return JsonResponse({"message" : "Successfully sent a request to '{}' service of '{}'".format(service.name,
+                                                                                                   service.developer)})
         else:
             messages.error(request, "This service is disabled")
+            return JsonResponse({"message" : "This service is disabled"})
 
     except ObjectDoesNotExist:
         messages.error(request, "Incorrect service id")
+        # return JsonResponse({"message" : "Incorrect service id"})
 
-    return render(request, 'final_response.html',
+    return JsonResponse(
                   {'result': response['Result'],
                    'providing_time': providing_time,
                    'pull_time': response['pull_time'],
