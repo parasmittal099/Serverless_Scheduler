@@ -1,0 +1,48 @@
+curl -X DELETE "http://localhost:8000/profiles/delete_user/2" \
+  -H "Accept: /" \
+  -H "User-Agent: Thunder Client (https://www.thunderclient.com)" \
+  -H "Content-Type: application/json" \
+  
+  curl -X POST "http://localhost:8000/profiles/register_user/" \
+  -H "Accept: /" \
+  -H "User-Agent: Thunder Client (https://www.thunderclient.com)" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "is_provider": false,
+    "is_developer": true,
+    "active": false,
+    "ready": true,
+    "location": "TEST_DEV_1",
+    "ram": 0,
+    "cpu": 0
+  }'
+  
+  curl -X POST "http://localhost:8000/developers/new_service/" \
+  -H "Accept: /" \
+  -H "User-Agent: Thunder Client (https://www.thunderclient.com)" \
+  -H "Content-Type: multipart/form-data" \
+  -F "name=Test_Serv_1" \
+  -F "docker_container=https://cloud.docker.com/u/ghaemisr/repository/docker/ghaemisr/node-info"
+  
+  curl -X POST "http://localhost:8000/developers/new_service/" \
+  -H "Accept: /" \
+  -H "User-Agent: Thunder Client (https://www.thunderclient.com)" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "is_active": true,
+	"docker_url": "https://cloud.docker.com/u/ghaemisr/repository/docker/ghaemisr/node-info",
+	"name": "Test_Serv_1",
+	"developer": 4
+  }'
+  
+  curl -X GET "http://localhost:8000/providers/ready/34933555-5cca-41fb-aded-4ab7900c48d5" \
+  -H "Accept: /" \
+  -H "User-Agent: Thunder Client (https://www.thunderclient.com)" \
+  
+  curl -X GET "http://localhost:8000/developers/run_service/3" \
+  -H "Accept: /" \
+  -H "User-Agent: Thunder Client (https://www.thunderclient.com)" 
+  
+  curl -X GET "http://localhost:8000/providers/job_ack/13" \
+  -H "Accept: /" \
+  -H "User-Agent: Thunder Client (https://www.thunderclient.com)"
