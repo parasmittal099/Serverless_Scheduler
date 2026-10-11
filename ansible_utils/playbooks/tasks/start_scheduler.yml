@@ -173,6 +173,11 @@
     use_proxy: false
     status_code: 200
   register: reset_result
+  # The port opens before Django is ready; a reset sent too early got
+  # 'Connection reset by peer' (2026-10-11). Retry until it answers.
+  retries: 10
+  delay: 3
+  until: reset_result.status | default(0) == 200
   failed_when: false
 
 - name: Abort if a requested EMA reset did not happen
