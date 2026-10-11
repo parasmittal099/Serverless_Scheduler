@@ -444,6 +444,8 @@
         body:
           # Cold-start runs must start every (provider, service) EMA at n = 0.
           reset_ema: "{{ reset_ema | default(force_model | default(false)) | bool }}"
+          # Providers start after this (next play) and announce READY.
+          reset_ready: true
         return_content: yes
         use_proxy: false
         status_code: 200
@@ -608,6 +610,9 @@
       retries: 2
       delay: 10
       until: prewarm_pull.rc == 0
+      # A failed pull (e.g. Docker Hub rate limit) must not fail the host: that
+      # skipped "Start provider script" on 8 nodes on 2026-10-11.
+      failed_when: false
 
     - name: Overlay hybridcaching.py (drops cached images whose registry digest changed)
       copy:

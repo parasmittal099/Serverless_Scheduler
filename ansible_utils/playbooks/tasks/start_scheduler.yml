@@ -169,6 +169,8 @@
     body:
       # Cold-start runs must start every (provider, service) EMA at n = 0.
       reset_ema: "{{ reset_ema | default(force_model | default(false)) | bool }}"
+      # Providers start after this (next play) and announce READY.
+      reset_ready: true
     return_content: yes
     use_proxy: false
     status_code: 200

@@ -1311,8 +1311,12 @@ def reset_provider_state(request):
         body = json.loads(request.body or b"{}")
     except (ValueError, TypeError):
         return JsonResponse({"error": "Body must be JSON"}, status=400)
-    # Ansible may template the flag as the string "True"; accept both forms.
+    # Ansible may template the flags as the string "True"; accept both forms.
     reset_ema = str(body.get("reset_ema", "")).strip().lower() == "true"
+    # Mark every provider not-ready, so only providers that announce READY after
+    # this point (i.e. are actually running) receive jobs. Stale ready=True rows
+    # sent 28 jobs to stopped providers on 2026-10-11 (all no_ack timeouts).
+    reset_ready = str(body.get("reset_ready", "")).strip().lower() == "true"
 
     providers = User.objects.filter(is_provider=True, active=True)
     reset_ids = []
@@ -1321,13 +1325,17 @@ def reset_provider_state(request):
         for p in providers.select_for_update():
             p.reset_delay()
             p.function_invocations = {}
-            p.save(update_fields=["delay", "function_invocations"])
+            fields = ["delay", "function_invocations"]
+            if reset_ready:
+                p.ready = False
+                fields.append("ready")
+            p.save(update_fields=fields)
             reset_ids.append(str(p.user_id))
         if reset_ema:
             ema_deleted, _ = PairRuntimeStats.objects.all().delete()
 
     return JsonResponse({"reset": len(reset_ids), "providers": reset_ids,
-                         "ema_rows_deleted": ema_deleted})
+                         "ema_rows_deleted": ema_deleted, "ready_cleared": reset_ready})
 
 
 def pending_jobs_count(request):
