@@ -193,12 +193,16 @@
 
     # colva2 is not covered by sync_repo or any other code sync; ship the LB code
     # the experiment depends on (re-queue on scheduler status=retry).
+    # loadbalancer/ on colva2 is root-owned (earlier root deployment), so copy
+    # with sudo (passwordless there) and hand the file to the LB's user.
     - name: Overlay loadbalancer_with_logging.py onto the LB host
       copy:
         src: "{{ local_project_dir }}/loadbalancer/loadbalancer_with_logging.py"
         dest: "{{ lb_project_dir }}/loadbalancer/loadbalancer_with_logging.py"
+        owner: "{{ lb_ssh_user }}"
+        group: "{{ lb_ssh_user }}"
         mode: "0644"
-      become: false
+      become: true
       delegate_to: lb_delegate
 
     - name: Stop stale load balancer process when unhealthy or broker changed
