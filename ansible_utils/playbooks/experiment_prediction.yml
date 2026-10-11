@@ -567,6 +567,15 @@
         mode: "0644"
       become: true
 
+    - name: Overlay hybridcaching.py (drops cached images whose registry digest changed)
+      copy:
+        src: "{{ playbook_dir }}/../../provider/hybridcaching.py"
+        dest: "{{ project_dir }}/provider/hybridcaching.py"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+      become: true
+
     - name: Start provider script
       shell: |
         nohup {{ project_dir }}/.venv/bin/python {{ project_dir }}/provider/provider1.py {{ provider_user_id }} > {{ project_dir }}/provider.log 2>&1 &

@@ -2,6 +2,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+import time
 import diskcache
 import docker
 
@@ -53,6 +54,59 @@ class HybridImageManager:
         self.cache_dir = os.path.join(cache_base, "cached_images")
         os.makedirs(self.cache_dir, mode=0o755, exist_ok=True)
         self.cache = _open_diskcache(diskcache_dir)
+        self.validate_against_registry()
+
+    # -- staleness ----------------------------------------------------------
+    # The disk cache is served before any pull, so an entry must be dropped when
+    # the registry's tag now points at a different image. Otherwise a republished
+    # image never reaches the provider: in Oct 2026 tarballs from May (old amd64
+    # builds) were re-loaded over fixed multi-arch images on every node.
+
+    def _registry_digest(self, image_id):
+        """Digest the registry currently serves for this tag, or None if unreachable."""
+        try:
+            return self.docker_client.images.get_registry_data(image_id).id
+        except Exception as e:
+            print(f"[validate] registry lookup failed for {image_id}: {e}")
+            return None
+
+    @staticmethod
+    def _local_repo_digest(image):
+        """Registry digest recorded on a pulled image (same value as _registry_digest)."""
+        for ref in (image.attrs.get("RepoDigests") or []):
+            if "@" in ref:
+                return ref.split("@", 1)[1]
+        return None
+
+    def _drop(self, image_id):
+        meta = self.cache.get(image_id) or {}
+        tar_path = meta.get("tar_path")
+        if tar_path and os.path.exists(tar_path):
+            try:
+                os.remove(tar_path)
+            except OSError as e:
+                print(f"[drop] could not remove {tar_path}: {e}")
+        self.cache.pop(image_id, None)
+        self.memory_cache.pop(image_id, None)
+
+    def validate_against_registry(self):
+        """Drop disk-cache entries whose tag now resolves to a different digest.
+
+        Runs once at provider start (no per-job cost). Entries without a stored
+        digest (written before this check existed) are dropped. If the registry
+        cannot be reached the entry is kept: a pull would fail just the same.
+        """
+        for image_id in list(self.cache.iterkeys()):
+            meta = self.cache.get(image_id) or {}
+            cached = meta.get("repo_digest")
+            current = self._registry_digest(image_id)
+            if current is None:
+                continue
+            if cached != current:
+                print(f"[validate] {image_id}: cached {cached} != registry {current}; dropping")
+                self._drop(image_id)
+            else:
+                print(f"[validate] {image_id}: cache up to date ({current[:19]})")
 
     def request_image(self, image_id):
         print(f"[request_image] Requesting image: {image_id}")
@@ -151,7 +205,9 @@ class HybridImageManager:
         # Store metadata in disk cache
         self.cache[image_id] = {
             'tar_path': tar_path,
-            'size': self._get_image_size(image)
+            'size': self._get_image_size(image),
+            'repo_digest': self._local_repo_digest(image),
+            'stored_at': time.time(),
         }
         print(f"[store_in_disk_cache] Stored {image_id} in disk cache with tar path: {tar_path}.")
 
@@ -173,22 +229,28 @@ class HybridImageManager:
             print(f"[evict_memory_cache] Updated total memory cache size: {total_size} bytes")
 
     def _evict_disk_cache(self, image_id, image):
-        """Evict LFU items from disk cache until within limit."""
-        image_size = self._get_image_size(image)
-        total_size = self.cache.volume()  # Use DiskCache's volume method
-        print(f"[evict_disk_cache] Total disk cache size: {total_size} bytes")
-        
-        while (total_size + image_size) > self.disk_limit:
-            # Find the least frequently used item
-            least_frequent_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])  # LFU eviction
-            least_frequent_size = os.path.getsize(os.path.join(self.cache_dir, least_frequent_key))
-            print(f"[evict_disk_cache] Least frequent image in disk cache: {least_frequent_key}, Size: {least_frequent_size} bytes")
+        """Evict the oldest cached images until the new one fits in disk_limit.
 
-            # Remove from disk cache
-            del self.cache[least_frequent_key]
-            print(f"[evict_disk_cache] Evicted {least_frequent_key} from disk cache to maintain disk limit.")
-            total_size -= least_frequent_size
-            print(f"[evict_disk_cache] Updated total disk cache size: {total_size} bytes")
+        Sizes come from the stored metadata (the tarballs). The previous version
+        measured cache.volume() -- only diskcache's own SQLite metadata -- so it
+        never evicted (palolems held 2.7 GB against a 2 GB limit), and its
+        eviction branch indexed the metadata dict with [1] and would have raised.
+        """
+        image_size = self._get_image_size(image)
+        entries = []
+        for key in list(self.cache.iterkeys()):
+            if key == image_id:
+                continue
+            meta = self.cache.get(key) or {}
+            entries.append((meta.get('stored_at', 0), key, meta.get('size') or 0))
+        total_size = sum(size for _, _, size in entries)
+        print(f"[evict_disk_cache] Total disk cache size: {total_size} bytes")
+        for _, key, size in sorted(entries):  # oldest first
+            if total_size + image_size <= self.disk_limit:
+                break
+            self._drop(key)
+            total_size -= size
+            print(f"[evict_disk_cache] Evicted {key} ({size} bytes); now {total_size} bytes")
 
     def _update_frequency(self, image_id):
         # Update the frequency of the image in memory cache
