@@ -156,6 +156,7 @@ def _batch_scheduler_worker():
 
                 try:
                     temp_time = datetime.now(tz=timezone(TIME_ZONE))
+                    batch_status = 'success'
                     batch_results = request_handler(req_list, svc_list, temp_time, False)
                     t_batch_end = time.time()
                     processed_count = (
@@ -182,13 +183,19 @@ def _batch_scheduler_worker():
                     )
                     results = [{'error': f'ILP processing failed: {exc}'} for _ in svc_list]
                     processed_count = 0
+                    # No provider was ready (all busy, e.g. on cold image pulls):
+                    # ask the load balancer to re-queue the batch. Replying
+                    # 'success' made it drop the requests (2026-10-11 smoke run:
+                    # 15 of 66 requests never became jobs).
+                    if "Could not find suitable providers" in str(exc):
+                        batch_status = 'retry'
 
                 try:
                     mc = get_mclient()
                     if mc:
                         response_payload = {
                             'correlation_id': cid,
-                            'status': 'success',
+                            'status': batch_status,
                             'batch_size': len(svc_list),
                             'processed': processed_count,
                             'ilp_solve_time': time.time() - t_batch_start,
@@ -1825,6 +1832,16 @@ def finish_job(data):
         
         print(f"Job completion data: {response_decoded}")
         
+        # Every scheduler subscribes to the providers' topics, so each one receives
+        # this completion. Claim the job atomically; the loser skips it. Without
+        # this both schedulers finalised every job and the EMA was updated twice
+        # per completion (2026-10-11: all 51 completions handled by both, with
+        # WriteTooOldError conflicts on PairRuntimeStats). A timeout sweep that
+        # already marked the job finished also wins.
+        if not Job.objects.filter(pk=id, finished=False).update(finished=True):
+            print(f"[finish_job] job {id} already finished (other scheduler or timeout sweep); skipping")
+            return
+
         # Update job with completion data
         job.refresh_from_db()
         print(f"Job state before update - pull_time: {job.pull_time}, run_time: {job.run_time}, total_time: {job.total_time}, finished: {job.finished}")
@@ -1891,7 +1908,10 @@ def finish_job(data):
 
                 # Update the cache state in the provider's model
                 if hasattr(provider, 'update_cache_state'):
-                    provider.update_cache_state(service_id, cache_location)
+                    # image_size is required (bytes); it was missing, so this
+                    # raised on every completion and cache state never updated.
+                    image_size = int((job.service.image_size_mb or 0) * 1024 * 1024)
+                    provider.update_cache_state(service_id, cache_location, image_size)
                     print(f"Updated cache state for provider {provider.user_id} and service {service_id}")
         except Exception as e:
             print(f"Error updating cache state: {str(e)}")

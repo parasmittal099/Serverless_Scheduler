@@ -78,6 +78,8 @@ scheduler_last_seen = {}
 discovered_schedulers = {}  # {name: {topic, last_seen, status, order_index, failure_count}}
 scheduler_order = []  # List of scheduler names in stable order
 next_scheduler_index = 0  # Current position in round-robin
+# Pause before re-sending a batch the scheduler could not place (no ready provider).
+RETRY_BACKOFF_S = float(os.environ.get("LB_NO_PROVIDER_RETRY_S", "3"))
 MAX_CONSECUTIVE_FAILURES = 3  # Mark scheduler as offline after 3 consecutive failures
 
 def get_loadbalancer_id():
@@ -790,6 +792,22 @@ async def process_batch():
         response = pending_responses[correlation_id]
         del pending_responses[correlation_id]
         logger.info(f"Received response from {scheduler_topic}: {response}")
+
+        # The scheduler found no ready provider (all busy). Re-queue the batch
+        # instead of treating it as done -- otherwise these requests are lost
+        # (2026-10-11 smoke run: 15 of 66 never became jobs). Not a scheduler
+        # failure, so no failure counting; back off briefly before resending.
+        if isinstance(response, dict) and response.get('status') == 'retry':
+            logger.warning(
+                f"Scheduler {scheduler_topic} had no ready provider for batch {batch_id}; "
+                f"re-queueing {len(batch_to_send)} requests"
+            )
+            ilp_state = "done"
+            async with batch_state.lock:
+                batch_state.current_batch = batch_to_send + batch_state.current_batch
+            await asyncio.sleep(RETRY_BACKOFF_S)
+            await process_batch()
+            return
         
         # Record batch processing completion
         processing_end_time = time.time()

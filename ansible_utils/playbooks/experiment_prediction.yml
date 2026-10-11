@@ -191,6 +191,16 @@
       delegate_to: lb_delegate
       when: mqtt_broker != ""
 
+    # colva2 is not covered by sync_repo or any other code sync; ship the LB code
+    # the experiment depends on (re-queue on scheduler status=retry).
+    - name: Overlay loadbalancer_with_logging.py onto the LB host
+      copy:
+        src: "{{ local_project_dir }}/loadbalancer/loadbalancer_with_logging.py"
+        dest: "{{ lb_project_dir }}/loadbalancer/loadbalancer_with_logging.py"
+        mode: "0644"
+      become: false
+      delegate_to: lb_delegate
+
     - name: Stop stale load balancer process when unhealthy or broker changed
       shell: "pkill -f 'uvicorn loadbalancer_with_logging:app' || true"
       failed_when: false
@@ -477,6 +487,24 @@
     scheduler_probe_timeout: 60
     mqtt_broker: "utorda1.dashlab.in"
     mqtt_port: "1884"
+    # Every arm starts from the same image state: all trace images present
+    # locally. Otherwise the first arm pays every cold pull (80-213 s per image
+    # on the shared uplink in the 2026-10-11 smoke run, leaving no ready
+    # provider) and later arms run warm. The paper's cold start is about
+    # prediction history, not image caches. -e prewarm_images=false to skip.
+    prewarm_images: true
+    trace_images:
+      - peercompute/benchmark.020.network-benchmark.python-3.9
+      - peercompute/benchmark.040.server-reply.python-3.9
+      - peercompute/benchmark.110.dynamic-html.python-3.9
+      - peercompute/benchmark.120.uploader.python-3.9
+      - peercompute/benchmark.210.thumbnailer.python-3.9
+      - peercompute/benchmark.311.compression.python-3.9
+      - peercompute/benchmark.501.graph-pagerank-3.9
+      - peercompute/benchmark.502.graph-mst-3.9
+      - peercompute/benchmark.503.graph-bfs-3.9
+      - peercompute/benchmark.504.dna-visualisation.python-3.9
+      - peercompute/benchmark.504.graph-bfs-3.9
   tasks:
     - name: Ensure Docker is running
       service:
@@ -566,6 +594,16 @@
         group: "{{ ansible_user }}"
         mode: "0644"
       become: true
+
+    - name: Pre-pull all trace images (equal warm image state for every arm)
+      shell: "docker pull -q {{ item }}"
+      loop: "{{ trace_images }}"
+      when: prewarm_images | bool
+      register: prewarm_pull
+      changed_when: false
+      retries: 2
+      delay: 10
+      until: prewarm_pull.rc == 0
 
     - name: Overlay hybridcaching.py (drops cached images whose registry digest changed)
       copy:
