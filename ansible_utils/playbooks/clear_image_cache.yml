@@ -18,6 +18,15 @@
       register: docker_prune
       become_user: "{{ ansible_user }}"
 
+    # provider/hybridcaching.py keeps its own disk cache of image tarballs and
+    # serves it BEFORE pulling, so a stale tarball (e.g. an old amd64 build) is
+    # re-loaded over a newer :latest. Clear it together with Docker's images.
+    # The provider runs as root, so its cache is under /root.
+    - name: Clear the provider's hybrid image cache
+      shell: >-
+        rm -rf /root/.cache/serverless_scheduler/provider
+        /home/{{ ansible_user }}/.cache/serverless_scheduler/provider
+
     - name: Report prune result
       debug:
         msg: "{{ inventory_hostname }}: {{ docker_prune.stdout_lines | last | default('no output') }}"

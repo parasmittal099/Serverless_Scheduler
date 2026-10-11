@@ -72,6 +72,14 @@
       when: reset_image_cache | bool
       register: docker_prune
 
+    # Also clear provider/hybridcaching.py's disk cache of image tarballs: it is
+    # served before any pull, so pruning Docker alone leaves stale images.
+    - name: Clear the provider's hybrid image cache (cold-start condition)
+      shell: >-
+        rm -rf /root/.cache/serverless_scheduler/provider
+        /home/{{ ansible_user }}/.cache/serverless_scheduler/provider
+      when: reset_image_cache | bool
+
     - name: Report image prune result
       debug:
         msg: "Image prune on {{ inventory_hostname }}: {{ docker_prune.stdout | default('skipped') }}"
