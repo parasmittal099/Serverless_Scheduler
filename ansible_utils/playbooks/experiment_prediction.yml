@@ -326,9 +326,12 @@
       become_user: "{{ ansible_user }}"
       changed_when: false
 
+    # All schedulers share one CockroachDB: migrate from a single node, or two
+    # nodes race on the same DDL (2026-10-09: 0014 half-applied, run aborted).
     - name: Run Django migrations
       shell: "cd {{ project_dir }}/scheduler && {{ project_dir }}/.venv/bin/python manage.py migrate --no-input"
       become_user: "{{ ansible_user }}"
+      run_once: true
 
     - name: Check if scheduler is running
       shell: "pgrep -f '[g]unicorn.*scheduler.wsgi' || pgrep -f '[m]anage.py runserver' || true"
