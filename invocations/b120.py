@@ -7,6 +7,14 @@ url_generators = {
     # resnet model from pytorch. 98M
     'large':  'https://download.pytorch.org/models/resnet50-19c8e357.pth'
 }
+# Re-host the 98 MB model on the LAN S3 store (UPLOADER_MODEL_URL, a public/
+# object readable without credentials) so the uploader's download does not cross
+# the lab's shared WAN uplink. It must be a plain URL: the function names its
+# local file after the URL's last segment, so a pre-signed query string breaks it.
+import os as _os
+if _os.environ.get('UPLOADER_MODEL_URL'):
+    url_generators['large'] = _os.environ['UPLOADER_MODEL_URL']
+
 
 def buckets_count():
     return (0, 1)

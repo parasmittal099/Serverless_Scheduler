@@ -904,6 +904,8 @@ def run_and_invoke_docker(body, container_name) -> dict:
                                              'AWS_ACCESS_KEY_ID': os.environ.get('AWS_ACCESS_KEY_ID', ''),
                                              'AWS_SECRET_ACCESS_KEY': os.environ.get('AWS_SECRET_ACCESS_KEY', ''),
                                              'AWS_REGION': os.environ.get('AWS_REGION', 'ap-south-1'),
+                                             # LAN S3 store; boto3 in the images honours it. Empty = AWS.
+                                             'AWS_ENDPOINT_URL': os.environ.get('AWS_ENDPOINT_URL', ''),
                                          }
                                          )
             print(f"[DEBUG] Container created successfully: {cont.id}")

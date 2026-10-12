@@ -91,6 +91,7 @@ MACHINE_PROBE_REPS: int = 3
 # Credentials are read from environment so they are never stored in source.
 # Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION in .env before running.
 BENCH_ENV: Dict[str, str] = {
+    "AWS_ENDPOINT_URL": os.environ.get("AWS_ENDPOINT_URL", ""),
     "AWS_ACCESS_KEY_ID": os.environ.get("AWS_ACCESS_KEY_ID", ""),
     "AWS_SECRET_ACCESS_KEY": os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
     "AWS_REGION": os.environ.get("AWS_REGION", "ap-south-1"),

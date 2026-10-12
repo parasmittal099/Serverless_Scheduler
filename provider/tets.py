@@ -91,9 +91,10 @@ def run_test(image_name, with_aws=True):
         env_vars = {}
         if with_aws:
             env_vars = {
-                'AWS_ACCESS_KEY_ID': 'AKIA3KAG6W36BSXOEHWD',
-                'AWS_SECRET_ACCESS_KEY': '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',
-                'AWS_REGION': 'ap-south-1'
+                'AWS_ACCESS_KEY_ID': os.environ.get('AWS_ACCESS_KEY_ID', ''),
+                'AWS_SECRET_ACCESS_KEY': os.environ.get('AWS_SECRET_ACCESS_KEY', ''),
+                'AWS_REGION': os.environ.get('AWS_REGION', 'ap-south-1'),
+                'AWS_ENDPOINT_URL': os.environ.get('AWS_ENDPOINT_URL', ''),
             }
         
         cont = client.containers.run(

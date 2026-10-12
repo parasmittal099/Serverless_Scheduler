@@ -21,6 +21,8 @@ def _get_s3_client():
                 aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
                 aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
                 region_name=os.environ.get("AWS_REGION", "ap-south-1"),
+                # Set AWS_ENDPOINT_URL to use a LAN S3-compatible store; unset = AWS.
+                endpoint_url=os.environ.get("AWS_ENDPOINT_URL") or None,
             )
         except ImportError:
             raise ImportError("boto3 is required for S3 uploads. Install it with: pip install boto3")
