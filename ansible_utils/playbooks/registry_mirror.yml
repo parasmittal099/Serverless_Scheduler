@@ -1,0 +1,100 @@
+---
+# LAN pull-through registry mirror for Docker Hub images.
+#
+# Why: the whole lab shares one public IP, and Docker Hub allows ~100
+# unauthenticated pulls per hour per IP. A full experiment rep needs several
+# hundred pulls (2026-10-11: "toomanyrequests" on 8 nodes). With a mirror each
+# image is fetched upstream once and served to every node over the LAN, which
+# also removes uplink contention from image pulls.
+#
+# For the paper: image pulls come from a site-local cache, not the internet.
+#
+# Usage:
+#   cd ansible_utils && ./run_playbook.sh playbooks/registry_mirror.yml -vvv --ask-vault-pass
+#
+# Play 1 starts the mirror (registry:3, proxy mode) on mirror_host.
+# Play 2 points every node's Docker daemon at it via /etc/docker/daemon.json
+#   (registry-mirrors only applies to Docker Hub images, so image names are
+#   unchanged) and restarts Docker only where the config changed. Run it
+#   between experiments: restarting Docker stops running containers.
+
+- name: Start the registry mirror
+  hosts: "{{ mirror_host | default('utorda1.dashlab.in') }}"
+  become: yes
+  gather_facts: false
+  vars:
+    mirror_port: 5000
+    mirror_data_dir: /var/lib/registry-mirror
+    # Re-check cached tags upstream this often. A long TTL (registry:2's
+    # default is 7 days) would serve stale images after a republish.
+    mirror_ttl: 15m
+  tasks:
+    - name: Check for an existing mirror container
+      command: docker inspect -f "{{ '{{' }}.State.Running{{ '}}' }}" registry-mirror
+      register: mirror_state
+      changed_when: false
+      failed_when: false
+
+    - name: Run registry:3 as a Docker Hub pull-through cache
+      command: >-
+        docker run -d --name registry-mirror --restart unless-stopped
+        -p {{ mirror_port }}:5000
+        -v {{ mirror_data_dir }}:/var/lib/registry
+        -e REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io
+        -e REGISTRY_PROXY_TTL={{ mirror_ttl }}
+        registry:3
+      when: mirror_state.rc != 0
+
+    - name: Start the mirror container if it exists but is stopped
+      command: docker start registry-mirror
+      when: mirror_state.rc == 0 and (mirror_state.stdout | trim) != "true"
+
+    - name: Wait for the mirror's API
+      uri:
+        url: "http://127.0.0.1:{{ mirror_port }}/v2/"
+        status_code: 200
+      register: mirror_api
+      retries: 15
+      delay: 2
+      until: mirror_api.status == 200
+
+- name: Point Docker on every node at the mirror
+  hosts: "managed:control"
+  become: yes
+  gather_facts: false
+  ignore_unreachable: true
+  vars:
+    mirror_url: "http://{{ mirror_host | default('utorda1.dashlab.in') }}:5000"
+    mirror_hostport: "{{ mirror_host | default('utorda1.dashlab.in') }}:5000"
+  tasks:
+    - name: Merge registry-mirrors into /etc/docker/daemon.json
+      shell: |
+        python3 - <<'PY'
+        import json, os
+        p = "/etc/docker/daemon.json"
+        cfg = json.load(open(p)) if os.path.exists(p) and os.path.getsize(p) else {}
+        before = json.dumps(cfg, sort_keys=True)
+        cfg["registry-mirrors"] = ["{{ mirror_url }}"]
+        insecure = cfg.get("insecure-registries", [])
+        if "{{ mirror_hostport }}" not in insecure:
+            insecure.append("{{ mirror_hostport }}")  # plain-HTTP mirror on the LAN
+        cfg["insecure-registries"] = insecure
+        if json.dumps(cfg, sort_keys=True) != before:
+            os.makedirs("/etc/docker", exist_ok=True)
+            json.dump(cfg, open(p, "w"), indent=2)
+            print("CHANGED")
+        PY
+      register: daemon_json
+      changed_when: "'CHANGED' in daemon_json.stdout"
+
+    - name: Restart Docker to apply the mirror
+      service:
+        name: docker
+        state: restarted
+      when: daemon_json is changed
+
+    - name: Verify Docker uses the mirror
+      shell: docker info --format '{{ "{{" }}json .RegistryConfig.Mirrors{{ "}}" }}'
+      register: docker_mirrors
+      changed_when: false
+      failed_when: mirror_url not in docker_mirrors.stdout
